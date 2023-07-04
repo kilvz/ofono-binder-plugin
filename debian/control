@@ -2,7 +2,7 @@ Source: libofonobinderpluginext
 Section: libs
 Priority: optional
 Maintainer: Slava Monich <slava.monich@jolla.com>
-Build-Depends: debhelper, libglib2.0-dev (>= 2.0), libgbinder-radio-dev
+Build-Depends: debhelper, libglib2.0-dev (>= 2.0), libgbinder-radio-dev, libmce-glib-dev, ofono-dev
 Standards-Version: 3.8.4
 
 Package: libofonobinderpluginext
