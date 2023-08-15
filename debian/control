@@ -1,18 +1,41 @@
-Source: libofonobinderpluginext
+Source: ofono-binder-plugin
 Section: libs
 Priority: optional
-Maintainer: Slava Monich <slava.monich@jolla.com>
-Build-Depends: debhelper, libglib2.0-dev (>= 2.0), libgbinder-radio-dev, libmce-glib-dev, ofono-dev
+Maintainer: Eugenio Paolantonio (g7) <me@medesimo.eu>
+XSBC-Original-Maintainer: Slava Monich <slava.monich@jolla.com>
+Build-Depends: debhelper,
+               libglib2.0-dev (>= 2.0),
+               libgbinder-dev (>= 1.1.29),
+               libgbinder-radio-dev (>= 1.5.3),
+               libglibutil-dev (>= 1.0.61),
+               libmce-glib-dev (>= 1.0.6),
+               ofono-dev (>= 1.29),
 Standards-Version: 3.8.4
+
+Package: ofono-binder-plugin
+Architecture: any
+Multi-Arch: same
+Depends: ${shilibs:Depends},
+         ${misc:Depends},
+Description: Binder plugin for the Sailfish OS fork of ofono
+
+Package: ofono-configs-binder
+Architecture: all
+Multi-Arch: foreign
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+Description: Default configurations for ofono-binder
 
 Package: libofonobinderpluginext
 Section: libs
 Architecture: any
+Multi-Arch: same
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Extension interfaces for ofono-binder-plugin
 
 Package: libofonobinderpluginext-dev
 Section: libdevel
 Architecture: any
+Multi-Arch: same
 Depends: libofonobinderpluginext (= ${binary:Version}), ${misc:Depends}
 Description: Development files for ofono-binder-plugin extensions
