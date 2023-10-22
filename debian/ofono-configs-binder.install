@@ -1,1 +1,3 @@
 binder.conf /etc/ofono
+10-lxc-android.conf /etc/systemd/system/ofono.service.d/
+20-droid-wait.conf /etc/systemd/system/ofono.service.d/
