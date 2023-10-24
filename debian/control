@@ -17,6 +17,7 @@ Architecture: any
 Multi-Arch: same
 Depends: ${shilibs:Depends},
          ${misc:Depends},
+         libmce-glib (>= 1.0.6),
 Description: Binder plugin for the Sailfish OS fork of ofono
 
 Package: ofono-configs-binder
