@@ -21,12 +21,17 @@ Depends: ${shilibs:Depends},
          libmce-glib (>= 1.0.6),
 Description: Binder plugin for the Sailfish OS fork of ofono
 
-Package: ofono-configs-binder
+Package: ofono-configs-binder-example
 Architecture: all
 Multi-Arch: foreign
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-Description: Default configurations for ofono-binder
+         ofono-binder-plugin,
+Provides: ofono-configs-binder
+Conflicts: ofono-configs-binder
+Description: ofono configuration for devices using the binder plugin - example configurations
+ This package contains the ofono configuration for devices using
+ the binder plugin.
 
 Package: libofonobinderpluginext
 Section: libs
