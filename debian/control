@@ -15,10 +15,9 @@ Standards-Version: 3.8.4
 Package: ofono-binder-plugin
 Architecture: any
 Multi-Arch: same
-Depends: ${shilibs:Depends},
+Depends: ${shlibs:Depends},
          ${misc:Depends},
          libofonobinderpluginext (= ${binary:Version}),
-         libmce-glib (>= 1.0.6),
 Description: Binder plugin for the Sailfish OS fork of ofono
 
 Package: ofono-configs-binder-example
