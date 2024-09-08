@@ -1528,7 +1528,7 @@ binder_network_set_pref(
         const RADIO_INTERFACE iface = radio_client_interface(client);
         GBinderWriter writer;
 
-        if (iface >= RADIO_INTERFACE_1_4) {
+        if (iface > RADIO_INTERFACE_1_4) {
             BinderRadioCaps* caps = self->caps;
             RADIO_ACCESS_FAMILY raf = binder_raf_from_pref(rat);
 
