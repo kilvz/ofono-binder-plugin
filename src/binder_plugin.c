@@ -52,8 +52,6 @@
 #include <ofono/slot.h>
 #include <ofono/watch.h>
 
-#include <mce_log.h>
-
 #include <radio_client.h>
 #include <radio_config.h>
 #include <radio_instance.h>
@@ -2508,14 +2506,6 @@ binder_plugin_slot_driver_cleanup(
     }
 }
 
-void
-binder_plugin_mce_log_notify(
-    struct ofono_debug_desc* desc)
-{
-    mce_log.level = (desc->flags & OFONO_DEBUG_FLAG_PRINT) ?
-        GLOG_LEVEL_VERBOSE : GLOG_LEVEL_INHERIT;
-}
-
 /* Global part (that requires access to these global variables) */
 
 static struct ofono_slot_driver_reg* binder_driver_reg = NULL;
@@ -2568,20 +2558,7 @@ binder_plugin_init(void)
         .cleanup = binder_plugin_slot_driver_cleanup,
     };
 
-   static struct ofono_debug_desc mce_debug OFONO_DEBUG_ATTR = {
-        .name = "mce",
-        .flags = OFONO_DEBUG_FLAG_DEFAULT,
-        .notify = binder_plugin_mce_log_notify
-    };
-
     DBG("");
-
-    /*
-     * Log categories (accessible via D-Bus) are generated from
-     * ofono_debug_desc structures, while libglibutil based log
-     * functions receive the log module name. Those should match.
-     */
-    mce_log.name = mce_debug.name;
 
     /* Register the slot driver */
     binder_driver_reg = ofono_slot_driver_register(&binder_slot_driver);
