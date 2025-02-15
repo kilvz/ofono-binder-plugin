@@ -12,7 +12,7 @@
 # on all platforms.
 #
 
-LDPKGS = libgbinder-radio libgbinder libmce-glib libglibutil gobject-2.0 glib-2.0
+LDPKGS = libgbinder-radio libgbinder libglibutil gobject-2.0 glib-2.0 gio-2.0
 PKGS = ofono $(LDPKGS)
 
 #
@@ -43,8 +43,8 @@ SRC = \
   binder_call_volume.c \
   binder_cbs.c \
   binder_cell_info.c \
-  binder_connman.c \
   binder_data.c \
+  binder_dbus_property.c \
   binder_devinfo.c \
   binder_devmon.c \
   binder_devmon_combine.c \
@@ -55,6 +55,8 @@ SRC = \
   binder_ims.c \
   binder_ims_reg.c \
   binder_logger.c \
+  binder_logind.c \
+  binder_nm.c \
   binder_modem.c \
   binder_netreg.c \
   binder_network.c \
@@ -67,6 +69,7 @@ SRC = \
   binder_sim_settings.c \
   binder_sms.c \
   binder_stk.c \
+  binder_upower.c \
   binder_ussd.c \
   binder_util.c \
   binder_voicecall.c \
