@@ -40,6 +40,7 @@
 #include <gbinder_reader.h>
 #include <gbinder_writer.h>
 
+#include <gutil_ints.h>
 #include <gutil_macros.h>
 #include <gutil_misc.h>
 
@@ -143,6 +144,7 @@ typedef struct binder_network_object {
     gboolean force_gsm_when_radio_off;
     BinderDataProfileConfig data_profile_config;
     GSList* data_profiles;
+    GUtilInts* ignore_apn_errors;
 } BinderNetworkObject;
 
 typedef BinderBaseClass BinderNetworkObjectClass;
@@ -1631,6 +1633,21 @@ binder_network_can_set_initial_attach_apn(
 }
 
 static
+gboolean
+binder_attach_apn_retry(
+    RadioRequest* req,
+    RADIO_TX_STATUS status,
+    RADIO_RESP resp,
+    RADIO_ERROR error,
+    const GBinderReader* args,
+    void* user_data)
+{
+    BinderNetworkObject* self = THIS(user_data);
+
+    return error != RADIO_ERROR_NONE && !gutil_ints_contains(self->ignore_apn_errors, error);
+}
+
+static
 void
 binder_network_set_initial_attach_apn(
     BinderNetworkObject* self,
@@ -1648,7 +1665,7 @@ binder_network_set_initial_attach_apn(
         if (iface >= RADIO_INTERFACE_1_5) {
             /* setInitialAttachApn_1_4(int32 serial, DataProfileInfo profile); */
             req = radio_request_new2(self->g, RADIO_REQ_SET_INITIAL_ATTACH_APN_1_5,
-                &writer, NULL, NULL, NULL);
+                &writer, NULL, NULL, self);
 
             gbinder_writer_append_struct(&writer,
                 binder_network_new_radio_data_profile_1_5(&writer, &profile, dpc),
@@ -1656,7 +1673,7 @@ binder_network_set_initial_attach_apn(
         } else if (iface >= RADIO_INTERFACE_1_4) {
             /* setInitialAttachApn_1_4(int32 serial, DataProfileInfo profile); */
             req = radio_request_new2(self->g, RADIO_REQ_SET_INITIAL_ATTACH_APN_1_4,
-                &writer, NULL, NULL, NULL);
+                &writer, NULL, NULL, self);
 
             gbinder_writer_append_struct(&writer,
                 binder_network_new_radio_data_profile_1_4(&writer, &profile, dpc),
@@ -1679,12 +1696,13 @@ binder_network_set_initial_attach_apn(
         /* setInitialAttachApn(int32 serial, DataProfileInfo profile); */
         req = radio_request_new(self->data_client,
             RADIO_DATA_REQ_SET_INITIAL_ATTACH_APN,
-            &writer, NULL, NULL, NULL);
+            &writer, NULL, NULL, self);
 
         binder_network_fill_radio_data_profile_aidl(&writer, &profile, dpc);
     }
 
     DBG_(self, "\"%s\"", ctx->apn);
+    radio_request_set_retry_func(req, binder_attach_apn_retry);
     radio_request_set_retry(req, BINDER_RETRY_MS, -1);
     radio_request_set_timeout(req, INTINITE_TIMEOUT);
     radio_request_drop(self->set_ia_apn_req);
@@ -2575,6 +2593,7 @@ binder_network_new(
     self->network_mode_timeout_ms = config->network_mode_timeout_ms;
     self->force_gsm_when_radio_off = config->force_gsm_when_radio_off;
     self->data_profile_config = *dpc;
+    self->ignore_apn_errors = gutil_ints_ref(config->ignore_apn_errors);
 
     /* Register listeners */
     if (self->interface_aidl == RADIO_AIDL_INTERFACE_NONE) {
@@ -2817,6 +2836,8 @@ binder_network_object_finalize(
     binder_sim_card_unref(self->simcard);
     binder_sim_settings_remove_handler(net->settings, self->settings_event_id);
     binder_sim_settings_unref(net->settings);
+
+    gutil_ints_unref(self->ignore_apn_errors);
 
     g_slist_free_full(self->data_profiles, g_free);
     g_free(self->log_prefix);
