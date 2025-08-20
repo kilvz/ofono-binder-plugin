@@ -9,6 +9,7 @@ Build-Depends: debhelper,
                libgbinder-radio-dev (>= 1.5.3),
                libglibutil-dev (>= 1.0.61),
                ofono-dev (>= 1.29),
+XS-Droidian-Extra-Repos: deb http://droidian.g.droidian.org/next-upgrade-gbinder/ trixie main
 Standards-Version: 3.8.4
 
 Package: ofono-binder-plugin
