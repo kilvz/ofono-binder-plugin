@@ -14,14 +14,12 @@
  */
 
 #include "binder_devmon.h"
-#include "binder_connman.h"
 #include "binder_log.h"
+#include "binder_logind.h"
+#include "binder_nm.h"
+#include "binder_upower.h"
 
 #include <ofono/log.h>
-
-#include <mce_battery.h>
-#include <mce_charger.h>
-#include <mce_display.h>
 
 #include <radio_client.h>
 #include <radio_request.h>
@@ -31,58 +29,28 @@
 
 #include <gutil_macros.h>
 
-enum binder_devmon_ds_battery_event {
-    BATTERY_EVENT_VALID,
-    BATTERY_EVENT_STATUS,
-    BATTERY_EVENT_COUNT
-};
-
-enum binder_devmon_ds_charger_event {
-    CHARGER_EVENT_VALID,
-    CHARGER_EVENT_STATE,
-    CHARGER_EVENT_COUNT
-};
-
-enum binder_devmon_ds_display_event {
-    DISPLAY_EVENT_VALID,
-    DISPLAY_EVENT_STATE,
-    DISPLAY_EVENT_COUNT
-};
-
-enum binder_devmon_ds_connman_event {
-    CONNMAN_EVENT_VALID,
-    CONNMAN_EVENT_TETHERING,
-    CONNMAN_EVENT_COUNT
-};
-
 typedef struct binder_devmon_ds {
     BinderDevmon pub;
-    BinderConnman* connman;
-    MceBattery* battery;
-    MceCharger* charger;
-    MceDisplay* display;
     int cell_info_interval_short_ms;
     int cell_info_interval_long_ms;
 } DevMon;
 
 typedef struct binder_devmon_ds_io {
     BinderDevmonIo pub;
-    BinderConnman* connman;
     struct ofono_slot* slot;
-    MceBattery* battery;
-    MceCharger* charger;
-    MceDisplay* display;
+    GObject *logind;
+    GObject *nm;
+    GObject *upower;
     RadioClient* client;
     RadioRequest* low_data_req;
     RadioRequest* charging_req;
     gboolean low_data;
     gboolean charging;
+    gboolean display_on;
+    gboolean access_point_enabled;
+    gboolean wifi_connection_enabled;
     gboolean low_data_supported;
     gboolean charging_supported;
-    gulong connman_event_id[CONNMAN_EVENT_COUNT];
-    gulong battery_event_id[BATTERY_EVENT_COUNT];
-    gulong charger_event_id[CHARGER_EVENT_COUNT];
-    gulong display_event_id[DISPLAY_EVENT_COUNT];
     int cell_info_interval_short_ms;
     int cell_info_interval_long_ms;
 } DevMonIo;
@@ -95,18 +63,6 @@ static inline DevMon* binder_devmon_ds_cast(BinderDevmon* pub)
 
 static inline DevMonIo* binder_devmon_ds_io_cast(BinderDevmonIo* pub)
     { return G_CAST(pub, DevMonIo, pub); }
-
-static inline gboolean binder_devmon_ds_tethering_on(BinderConnman* connman)
-    { return connman->valid && connman->tethering; }
-
-static inline gboolean binder_devmon_ds_battery_ok(MceBattery* battery)
-    { return battery->valid && battery->status >= MCE_BATTERY_OK; }
-
-static inline gboolean binder_devmon_ds_charging(MceCharger* charger)
-    { return charger->valid && charger->state == MCE_CHARGER_ON; }
-
-static inline gboolean binder_devmon_ds_display_on(MceDisplay* display)
-    { return display->valid && display->state != MCE_DISPLAY_STATE_OFF; }
 
 static
 void
@@ -205,17 +161,12 @@ void
 binder_devmon_ds_io_update_charging(
     DevMonIo* self)
 {
-    const gboolean charging = binder_devmon_ds_charging(self->charger);
-
-    if (self->charging != charging) {
-        self->charging = charging;
-        DBG_(self, "Charging %s", charging ? "on" : "off");
-        if (self->charging_supported) {
-            radio_request_drop(self->charging_req);
-            self->charging_req = binder_devmon_ds_io_send_device_state(self,
-                RADIO_DEVICE_STATE_CHARGING_STATE, charging,
-                binder_devmon_ds_io_charging_state_sent);
-        }
+    ofono_info("Charging: %b", self->charging);
+    if (self->charging_supported) {
+        radio_request_drop(self->charging_req);
+        self->charging_req = binder_devmon_ds_io_send_device_state(self,
+            RADIO_DEVICE_STATE_CHARGING_STATE, self->charging,
+            binder_devmon_ds_io_charging_state_sent);
     }
 }
 
@@ -225,13 +176,12 @@ binder_devmon_ds_io_update_low_data(
     DevMonIo* self)
 {
     const gboolean low_data =
-        !binder_devmon_ds_tethering_on(self->connman) &&
-        !binder_devmon_ds_charging(self->charger) &&
-        !binder_devmon_ds_display_on(self->display);
+        (self->wifi_connection_enabled || !self->display_on) &&
+        (!self->charging && !self->access_point_enabled);
 
     if (self->low_data != low_data) {
         self->low_data = low_data;
-        DBG_(self, "Low data is%s expected", low_data ? "" : " not");
+        ofono_info("Low data: %b", low_data);
         if (self->low_data_supported) {
             radio_request_drop(self->low_data_req);
             self->low_data_req = binder_devmon_ds_io_send_device_state(self,
@@ -246,55 +196,74 @@ void
 binder_devmon_ds_io_set_cell_info_update_interval(
     DevMonIo* self)
 {
+    gboolean powersave =
+        (self->wifi_connection_enabled || !self->display_on) &&
+        (!self->charging && !self->access_point_enabled);
+
     ofono_slot_set_cell_info_update_interval(self->slot, self,
-        (binder_devmon_ds_display_on(self->display) &&
-            (binder_devmon_ds_charging(self->charger) ||
-                binder_devmon_ds_battery_ok(self->battery))) ?
-                    self->cell_info_interval_short_ms :
-                    self->cell_info_interval_long_ms);
+            powersave ?
+                self->cell_info_interval_long_ms :
+                self->cell_info_interval_short_ms);
 }
 
-static
-void
-binder_devmon_ds_io_connman_cb(
-    BinderConnman* connman,
-    BINDER_CONNMAN_PROPERTY property,
-    void* user_data)
+static void
+binder_screen_state_changed_cb (
+    GObject  *logind,
+    gboolean  display_on,
+    DevMonIo *self)
 {
-    binder_devmon_ds_io_update_low_data((DevMonIo*)user_data);
-}
+    if (self->display_on == display_on)
+        return;
 
-static
-void
-binder_devmon_ds_io_battery_cb(
-    MceBattery* battery,
-    void* user_data)
-{
-    binder_devmon_ds_io_set_cell_info_update_interval((DevMonIo*)user_data);
-}
-
-static
-void
-binder_devmon_ds_io_display_cb(
-    MceDisplay* display,
-    void* user_data)
-{
-    DevMonIo* self = user_data;
+    self->display_on = display_on;
 
     binder_devmon_ds_io_update_low_data(self);
     binder_devmon_ds_io_set_cell_info_update_interval(self);
 }
 
-static
-void
-binder_devmon_ds_io_charger_cb(
-    MceCharger* charger,
-    void* user_data)
+static void
+binder_charging_state_changed_cb (
+    GObject  *upower,
+    gboolean  charging,
+    DevMonIo *self)
 {
-    DevMonIo* self = user_data;
+    if (self->charging == charging)
+        return;
+
+    self->charging = charging;
 
     binder_devmon_ds_io_update_low_data(self);
     binder_devmon_ds_io_update_charging(self);
+    binder_devmon_ds_io_set_cell_info_update_interval(self);
+}
+
+static void
+binder_access_point_enabled_cb (
+    GObject  *upower,
+    gboolean  enabled,
+    DevMonIo *self)
+{
+    if (self->access_point_enabled == enabled)
+        return;
+
+    self->access_point_enabled = enabled;
+
+    binder_devmon_ds_io_update_low_data(self);
+    binder_devmon_ds_io_set_cell_info_update_interval(self);
+}
+
+static void
+binder_wifi_connection_enabled_cb (
+    GObject  *upower,
+    gboolean  enabled,
+    DevMonIo *self)
+{
+    if (self->wifi_connection_enabled == enabled)
+        return;
+
+    self->wifi_connection_enabled = enabled;
+
+    binder_devmon_ds_io_update_low_data(self);
     binder_devmon_ds_io_set_cell_info_update_interval(self);
 }
 
@@ -305,21 +274,13 @@ binder_devmon_ds_io_free(
 {
     DevMonIo* self = binder_devmon_ds_io_cast(io);
 
-    binder_connman_remove_all_handlers(self->connman, self->connman_event_id);
-    binder_connman_unref(self->connman);
-
-    mce_battery_remove_all_handlers(self->battery, self->battery_event_id);
-    mce_battery_unref(self->battery);
-
-    mce_charger_remove_all_handlers(self->charger, self->charger_event_id);
-    mce_charger_unref(self->charger);
-
-    mce_display_remove_all_handlers(self->display, self->display_event_id);
-    mce_display_unref(self->display);
-
     radio_request_drop(self->low_data_req);
     radio_request_drop(self->charging_req);
     radio_client_unref(self->client);
+
+    g_clear_object (&self->logind);
+    g_clear_object (&self->nm);
+    g_clear_object (&self->upower);
 
     ofono_slot_drop_cell_info_requests(self->slot, self);
     ofono_slot_unref(self->slot);
@@ -340,49 +301,48 @@ binder_devmon_ds_start_io(
     self->pub.free = binder_devmon_ds_io_free;
     self->low_data_supported = TRUE;
     self->charging_supported = TRUE;
+    self->low_data = FALSE;
+    self->display_on = TRUE;
+    self->charging = FALSE;
+    self->access_point_enabled = FALSE;
+    self->wifi_connection_enabled = FALSE;
     self->client = radio_client_ref(ds_client);
+    self->logind = binder_logind_new();
+    self->nm = binder_nm_new();
+    self->upower = binder_upower_new();
     self->slot = ofono_slot_ref(slot);
-
-    self->connman = binder_connman_ref(ds->connman);
-    self->connman_event_id[CONNMAN_EVENT_VALID] =
-        binder_connman_add_property_changed_handler(self->connman,
-            BINDER_CONNMAN_PROPERTY_VALID,
-            binder_devmon_ds_io_connman_cb, self);
-    self->connman_event_id[CONNMAN_EVENT_TETHERING] =
-        binder_connman_add_property_changed_handler(self->connman,
-            BINDER_CONNMAN_PROPERTY_TETHERING,
-            binder_devmon_ds_io_connman_cb, self);
-
-    self->battery = mce_battery_ref(ds->battery);
-    self->battery_event_id[BATTERY_EVENT_VALID] =
-        mce_battery_add_valid_changed_handler(self->battery,
-            binder_devmon_ds_io_battery_cb, self);
-    self->battery_event_id[BATTERY_EVENT_STATUS] =
-        mce_battery_add_status_changed_handler(self->battery,
-            binder_devmon_ds_io_battery_cb, self);
-
-    self->charger = mce_charger_ref(ds->charger);
-    self->charger_event_id[CHARGER_EVENT_VALID] =
-        mce_charger_add_valid_changed_handler(self->charger,
-            binder_devmon_ds_io_charger_cb, self);
-    self->charger_event_id[CHARGER_EVENT_STATE] =
-        mce_charger_add_state_changed_handler(self->charger,
-            binder_devmon_ds_io_charger_cb, self);
-
-    self->display = mce_display_ref(ds->display);
-    self->display_event_id[DISPLAY_EVENT_VALID] =
-        mce_display_add_valid_changed_handler(self->display,
-            binder_devmon_ds_io_display_cb, self);
-    self->display_event_id[DISPLAY_EVENT_STATE] =
-        mce_display_add_state_changed_handler(self->display,
-            binder_devmon_ds_io_display_cb, self);
 
     self->cell_info_interval_short_ms = ds->cell_info_interval_short_ms;
     self->cell_info_interval_long_ms = ds->cell_info_interval_long_ms;
 
-    binder_devmon_ds_io_update_low_data(self);
-    binder_devmon_ds_io_update_charging(self);
+    g_signal_connect (
+        self->logind,
+        "screen-state-changed",
+        G_CALLBACK (binder_screen_state_changed_cb),
+        self);
+
+    g_signal_connect (
+        self->upower,
+        "charging-state-changed",
+        G_CALLBACK (binder_charging_state_changed_cb),
+        self);
+
+    g_signal_connect (
+        self->nm,
+        "access-point-enabled",
+        G_CALLBACK (binder_access_point_enabled_cb),
+        self);
+
+    g_signal_connect (
+        self->nm,
+        "wifi-connection-enabled",
+        G_CALLBACK (binder_wifi_connection_enabled_cb),
+        self);
+
+    binder_screen_state_changed_cb(self->logind, FALSE, self);
+    binder_charging_state_changed_cb(self->upower, FALSE, self);
     binder_devmon_ds_io_set_cell_info_update_interval(self);
+
     return &self->pub;
 }
 
@@ -393,10 +353,6 @@ binder_devmon_ds_free(
 {
     DevMon* self = binder_devmon_ds_cast(devmon);
 
-    binder_connman_unref(self->connman);
-    mce_battery_unref(self->battery);
-    mce_charger_unref(self->charger);
-    mce_display_unref(self->display);
     g_free(self);
 }
 
@@ -412,10 +368,6 @@ binder_devmon_ds_new(
 
     self->pub.free = binder_devmon_ds_free;
     self->pub.start_io = binder_devmon_ds_start_io;
-    self->connman = binder_connman_new();
-    self->battery = mce_battery_new();
-    self->charger = mce_charger_new();
-    self->display = mce_display_new();
     self->cell_info_interval_short_ms = config->cell_info_interval_short_ms;
     self->cell_info_interval_long_ms = config->cell_info_interval_long_ms;
     return &self->pub;
