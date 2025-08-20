@@ -8,7 +8,6 @@ Build-Depends: debhelper,
                libgbinder-dev (>= 1.1.29),
                libgbinder-radio-dev (>= 1.5.3),
                libglibutil-dev (>= 1.0.61),
-               libmce-glib-dev (>= 1.0.6),
                ofono-dev (>= 1.29),
 Standards-Version: 3.8.4
 
