@@ -1425,6 +1425,7 @@ binder_plugin_slot_check_radio_client(
         if (modem_interface == RADIO_MODEM_INTERFACE) {
             // AIDL, need to connect to the other interfaces as well
             binder_plugin_connect_to_interface(slot, dev, RADIO_DATA_INTERFACE);
+            binder_plugin_connect_to_interface(slot, dev, RADIO_IMS_INTERFACE);
             binder_plugin_connect_to_interface(slot, dev, RADIO_MESSAGING_INTERFACE);
             binder_plugin_connect_to_interface(slot, dev, RADIO_NETWORK_INTERFACE);
             binder_plugin_connect_to_interface(slot, dev, RADIO_SIM_INTERFACE);
@@ -1858,11 +1859,15 @@ binder_plugin_create_slot(
 
             config->techs |= m;
         }
+        if (!config->techs) {
+            config->techs = BINDER_DEFAULT_SLOT_TECHS;
+        }
         g_strfreev(strv);
     }
 
     /* limit technologies based on radioInterface */
-    if (slot->version < RADIO_INTERFACE_1_4) {
+    if (slot->interface_type == RADIO_INTERFACE_TYPE_HIDL &&
+        slot->version < RADIO_INTERFACE_1_4) {
         config->techs &= ~OFONO_RADIO_ACCESS_MODE_NR;
     }
 
@@ -2472,7 +2477,7 @@ binder_plugin_slot_start_timeout(
         plugin->flags &= ~BINDER_PLUGIN_NEED_CONFIG_SERVICE;
     }
     binder_plugin_foreach_slot(plugin, binder_plugin_slot_check_radio_client);
-    if (!slot->client) {
+    if (!binder_plugin_is_slot_client_connected(slot)) {
         plugin->slots = g_slist_remove(plugin->slots, slot);
         binder_plugin_slot_free(slot);
     }
