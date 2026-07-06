@@ -16,11 +16,15 @@
 #include "binder_base.h"
 #include "binder_log.h"
 #include "binder_sim_settings.h"
+#include "binder_util.h"
 
 #include <ofono/watch.h>
 
 #include <gutil_misc.h>
 #include <gutil_macros.h>
+
+#define BINDER_PREF_DIR  "/var/lib/ofono"
+#define BINDER_PREF_PREFIX "binder-pref-"
 
 BINDER_BASE_ASSERT_COUNT(BINDER_SIM_SETTINGS_PROPERTY_COUNT);
 
@@ -75,6 +79,48 @@ binder_sim_settings_imsi_changed(
 }
 
 /*==========================================================================*
+ * Persistence helpers
+ *==========================================================================*/
+
+static char* binder_pref_path(const char* path)
+{
+    char* basename = g_path_get_basename(path);
+    char* result = g_strconcat(BINDER_PREF_DIR "/" BINDER_PREF_PREFIX,
+        basename, NULL);
+    g_free(basename);
+    return result;
+}
+
+static enum ofono_radio_access_mode binder_pref_read(const char* path)
+{
+    char* file = binder_pref_path(path);
+    char* contents = NULL;
+    enum ofono_radio_access_mode pref = OFONO_RADIO_ACCESS_MODE_ANY;
+
+    if (g_file_get_contents(file, &contents, NULL, NULL)) {
+        int val;
+        if (sscanf(contents, "%d", &val) == 1) {
+            pref = (enum ofono_radio_access_mode)val;
+        }
+        g_free(contents);
+    }
+    g_free(file);
+    return pref;
+}
+
+static void binder_pref_write(const char* path,
+    enum ofono_radio_access_mode pref)
+{
+    char* file = binder_pref_path(path);
+    char* contents = g_strdup_printf("%d", (int)pref);
+
+    g_mkdir_with_parents(BINDER_PREF_DIR, 0755);
+    g_file_set_contents(file, contents, -1, NULL);
+    g_free(contents);
+    g_free(file);
+}
+
+/*==========================================================================*
  * API
  *==========================================================================*/
 
@@ -87,10 +133,13 @@ binder_sim_settings_new(
 
     if (G_LIKELY(path)) {
         BinderSimSettingsObject* self = g_object_new(THIS_TYPE, NULL);
+        enum ofono_radio_access_mode saved_pref = binder_pref_read(path);
 
         settings = &self->pub;
         settings->techs = techs;
-        settings->pref = techs;
+        settings->pref = (saved_pref != OFONO_RADIO_ACCESS_MODE_ANY) ?
+            saved_pref :
+            binder_access_modes_up_to(ofono_radio_access_max_mode(techs));
         self->watch = ofono_watch_new(path);
         self->watch_event_id[WATCH_EVENT_IMSI] =
             ofono_watch_add_imsi_changed_handler(self->watch,
@@ -130,10 +179,13 @@ binder_sim_settings_set_pref(
 {
     BinderSimSettingsObject* self = binder_sim_settings_cast(settings);
 
-    if (G_LIKELY(self) && settings->pref != pref) {
-        settings->pref = pref;
-        binder_base_emit_property_change(&self->base,
-            BINDER_SIM_SETTINGS_PROPERTY_PREF);
+    if (G_LIKELY(self)) {
+        if (settings->pref != pref) {
+            settings->pref = pref;
+            binder_base_emit_property_change(&self->base,
+                BINDER_SIM_SETTINGS_PROPERTY_PREF);
+        }
+        binder_pref_write(self->watch->path, pref);
     }
 }
 
