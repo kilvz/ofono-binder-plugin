@@ -1080,6 +1080,8 @@ binder_plugin_service_list_proc(
     return FALSE;
 }
 
+static const char* binder_ril_instance_name(const BinderSlot* slot);
+
 static
 gboolean
 binder_plugin_slot_service_list_proc(
@@ -1088,8 +1090,9 @@ binder_plugin_slot_service_list_proc(
     void* data)
 {
     BinderSlot* slot = data;
+    const char* ril_name = binder_ril_instance_name(slot);
     char* fqname = g_strconcat(binder_radio_ifaces[slot->version], "/",
-        slot->name, NULL);
+        ril_name, NULL);
 
     slot->list_call_id = 0;
     if (gutil_strv_contains(services, fqname)) {
@@ -1239,7 +1242,7 @@ binder_plugin_slot_check_radio_client(
 
         DBG("Bringing up %s", slot->name);
         slot->instance = radio_instance_new_with_modem_slot_and_version(dev,
-            slot->name, slot->path, slot->config.slot, slot->version);
+            binder_ril_instance_name(slot), slot->path, slot->config.slot, slot->version);
         slot->client = radio_client_new(slot->instance);
         if (slot->client) {
             radio_client_set_default_timeout(slot->client,
@@ -1345,6 +1348,11 @@ binder_plugin_parse_radio_interface(
         }
     }
     return BINDER_DEFAULT_RADIO_INTERFACE;
+}
+
+static const char* binder_ril_instance_name(const BinderSlot* slot)
+{
+    return slot->config.slot == 0 ? "slot1" : "slot2";
 }
 
 static
@@ -1543,7 +1551,7 @@ binder_plugin_create_slot(
         slot->version = binder_plugin_parse_radio_interface(sval);
         g_free(sval);
     } else {
-        slot->version = binder_plugin_detect_radio_interface(slot->svcmgr, slot->name);
+        slot->version = binder_plugin_detect_radio_interface(slot->svcmgr, binder_ril_instance_name(slot));
     }
 
     /* startTimeout */

@@ -2231,8 +2231,8 @@ binder_network_new(
         binder_network_poll_state(self);
     }
 
-    self->set_initial_attach_apn = self->need_initial_attach_apn =
-        binder_network_need_initial_attach_apn(self);
+    self->need_initial_attach_apn = binder_network_need_initial_attach_apn(self);
+    self->set_initial_attach_apn = !!(settings->techs & OFONO_RADIO_ACCESS_MODE_LTE);
 
     if (dpc->use_data_profiles) {
         binder_network_check_data_profiles(self);

@@ -196,6 +196,9 @@ binder_radio_power_request_cb(
         } else if (error != RADIO_ERROR_NONE) {
             ofono_error("Power request failed: %s",
                 binder_radio_error_string(error));
+        } else {
+            self->last_known_state = self->next_state ?
+                RADIO_STATE_ON : RADIO_STATE_OFF;
         }
     } else {
         ofono_error("Power request failed");
